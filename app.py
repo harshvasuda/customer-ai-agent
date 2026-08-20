@@ -29,8 +29,8 @@ if not api_key:
 
 
 def call_gemini_api(prompt_text, image_obj=None, audio_bytes=None):
-  # Standard Google Generative Language Endpoint
-  url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+  # Updated to gemini-3.6-flash
+  url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={api_key}"
   headers = {
       "Content-Type": "application/json",
       "x-goog-api-key": api_key,
