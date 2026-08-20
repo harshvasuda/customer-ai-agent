@@ -1,5 +1,6 @@
 ﻿import base64
 import io
+import json
 import os
 from PIL import Image
 import requests
@@ -17,7 +18,7 @@ st.set_page_config(
     page_title="BloggerAgent AI", page_icon="✍️", layout="wide"
 )
 
-# API Token / Key Retrieval
+# API Token Retrieval
 api_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 
 if not api_key:
@@ -25,16 +26,17 @@ if not api_key:
   st.stop()
 
 
-# REST API Calling Function (Handles both AQ tokens and standard AIza keys)
 def call_gemini_api(prompt_text, image_obj=None, audio_bytes=None):
-  headers = {"Content-Type": "application/json"}
-
-  # AQ tokens must be sent via Authorization Bearer header
   if api_key.startswith("AQ."):
-    headers["Authorization"] = f"Bearer {api_key}"
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-client": "genai-js/0.1.1",
+        "Authorization": f"Bearer {api_key}",
+    }
   else:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
 
   parts = []
 
@@ -91,7 +93,7 @@ st.caption("Research, Draft & Ideate via Text, Voice, or Visual Inputs")
 if "messages" not in st.session_state:
   st.session_state.messages = []
 
-# Conversation History Display
+# Display Conversation History
 for msg in st.session_state.messages:
   with st.chat_message(msg["role"]):
     if msg.get("image"):
@@ -104,11 +106,8 @@ for msg in st.session_state.messages:
     if msg.get("audio_out"):
       st.audio(msg["audio_out"], format="audio/mp3")
 
-# Input Processing
-user_prompt = st.chat_input(
-    "Ask anything... (e.g. Write a tech blog, recipe breakdown, code"
-    " explanation)"
-)
+# Main Chat Bar
+user_prompt = st.chat_input("Ask anything...")
 has_voice_only = voice_audio is not None and not user_prompt
 active_input = (
     user_prompt
@@ -124,7 +123,6 @@ if active_input:
 
   user_audio_bytes = voice_audio.read() if has_voice_only else None
 
-  # 1. User Message
   st.session_state.messages.append({
       "role": "user",
       "content": user_prompt if user_prompt else "🎙️ *[Voice Query Sent]*",
@@ -139,9 +137,8 @@ if active_input:
       st.audio(user_audio_bytes, format="audio/wav")
     st.markdown(user_prompt if user_prompt else "🎙️ *[Voice Query Sent]*")
 
-  # 2. Assistant Response
   with st.chat_message("assistant"):
-    with st.spinner("Processing & writing..."):
+    with st.spinner("Processing..."):
       try:
         ai_text = call_gemini_api(
             prompt_text=user_prompt,
@@ -153,7 +150,7 @@ if active_input:
 
       st.markdown(ai_text)
 
-      # Speech Synthesis
+      # Speech Output
       audio_out_bytes = None
       if HAS_GTTS and not ai_text.startswith("⚠️"):
         try:
@@ -169,7 +166,6 @@ if active_input:
         except Exception:
           pass
 
-  # 3. Store State
   st.session_state.messages.append({
       "role": "assistant",
       "content": ai_text,
