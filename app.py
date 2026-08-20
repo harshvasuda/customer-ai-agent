@@ -1,8 +1,8 @@
-﻿import io
+﻿import base64
+import io
 import os
-from google import genai
-from google.genai import types
 from PIL import Image
+import requests
 import streamlit as st
 
 # Safe import for gTTS
@@ -17,21 +17,53 @@ st.set_page_config(
     page_title="BloggerAgent AI", page_icon="✍️", layout="wide"
 )
 
-# API Key & Client Setup (Auto-detects standard vs OAuth project keys)
+# API Token / Key Retrieval
 api_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 
 if not api_key:
   st.error("⚠️ GEMINI_API_KEY not found in Streamlit Secrets!")
   st.stop()
 
-# Support both AI Studio keys and OAuth/GCP Tokens
-if api_key.startswith("AQ."):
-  client = genai.Client(
-      api_key=api_key,
-      http_options={"api_version": "v1alpha"},
-  )
-else:
-  client = genai.Client(api_key=api_key)
+
+# REST API Calling Function (Handles both AQ tokens and standard AIza keys)
+def call_gemini_api(prompt_text, image_obj=None, audio_bytes=None):
+  headers = {"Content-Type": "application/json"}
+
+  # AQ tokens must be sent via Authorization Bearer header
+  if api_key.startswith("AQ."):
+    headers["Authorization"] = f"Bearer {api_key}"
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+  else:
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+
+  parts = []
+
+  if image_obj:
+    buffered = io.BytesIO()
+    image_obj.save(buffered, format="JPEG")
+    img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+    parts.append({"inline_data": {"mime_type": "image/jpeg", "data": img_str}})
+
+  if audio_bytes:
+    aud_str = base64.b64encode(audio_bytes).decode("utf-8")
+    parts.append({"inline_data": {"mime_type": "audio/wav", "data": aud_str}})
+    parts.append({
+        "text": "Transcribe and provide a comprehensive, structured response."
+    })
+  elif prompt_text:
+    parts.append({"text": prompt_text})
+
+  payload = {"contents": [{"parts": parts}]}
+
+  response = requests.post(url, headers=headers, json=payload, timeout=60)
+  data = response.json()
+
+  if response.status_code != 200:
+    err_detail = data.get("error", {}).get("message", response.text)
+    raise Exception(f"{response.status_code}: {err_detail}")
+
+  return data["candidates"][0]["content"]["parts"][0]["text"]
+
 
 # ----------------- SIDEBAR -----------------
 with st.sidebar:
@@ -56,11 +88,10 @@ with st.sidebar:
 st.title("✍️ StreamLite Multimodal Assistant")
 st.caption("Research, Draft & Ideate via Text, Voice, or Visual Inputs")
 
-# Initialize Chat Memory
 if "messages" not in st.session_state:
   st.session_state.messages = []
 
-# Display Conversation History
+# Conversation History Display
 for msg in st.session_state.messages:
   with st.chat_message(msg["role"]):
     if msg.get("image"):
@@ -73,12 +104,11 @@ for msg in st.session_state.messages:
     if msg.get("audio_out"):
       st.audio(msg["audio_out"], format="audio/mp3")
 
-# Main Chat Bar
+# Input Processing
 user_prompt = st.chat_input(
     "Ask anything... (e.g. Write a tech blog, recipe breakdown, code"
     " explanation)"
 )
-
 has_voice_only = voice_audio is not None and not user_prompt
 active_input = (
     user_prompt
@@ -113,33 +143,17 @@ if active_input:
   with st.chat_message("assistant"):
     with st.spinner("Processing & writing..."):
       try:
-        payload = []
-        if img_data:
-          payload.append(img_data)
-
-        if has_voice_only and user_audio_bytes:
-          payload.append(
-              types.Part.from_bytes(
-                  data=user_audio_bytes, mime_type="audio/wav"
-              )
-          )
-          payload.append(
-              "Transcribe and provide a comprehensive, structured response in"
-              " natural conversational language."
-          )
-        else:
-          payload.append(user_prompt)
-
-        response = client.models.generate_content(
-            model="gemini-2.5-flash", contents=payload
+        ai_text = call_gemini_api(
+            prompt_text=user_prompt,
+            image_obj=img_data,
+            audio_bytes=user_audio_bytes,
         )
-        ai_text = response.text
       except Exception as e:
         ai_text = f"⚠️ Error: {str(e)}"
 
       st.markdown(ai_text)
 
-      # Audio Speech Generation
+      # Speech Synthesis
       audio_out_bytes = None
       if HAS_GTTS and not ai_text.startswith("⚠️"):
         try:
@@ -155,7 +169,7 @@ if active_input:
         except Exception:
           pass
 
-  # 3. Save Assistant Message
+  # 3. Store State
   st.session_state.messages.append({
       "role": "assistant",
       "content": ai_text,
