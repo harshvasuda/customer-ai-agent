@@ -17,14 +17,21 @@ st.set_page_config(
     page_title="BloggerAgent AI", page_icon="✍️", layout="wide"
 )
 
-# API Initialization (Streamlit Secrets priority)
+# API Key & Client Setup (Auto-detects standard vs OAuth project keys)
 api_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 
 if not api_key:
   st.error("⚠️ GEMINI_API_KEY not found in Streamlit Secrets!")
   st.stop()
 
-client = genai.Client(api_key=api_key)
+# Support both AI Studio keys and OAuth/GCP Tokens
+if api_key.startswith("AQ."):
+  client = genai.Client(
+      api_key=api_key,
+      http_options={"api_version": "v1alpha"},
+  )
+else:
+  client = genai.Client(api_key=api_key)
 
 # ----------------- SIDEBAR -----------------
 with st.sidebar:
