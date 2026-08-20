@@ -6,7 +6,6 @@ from PIL import Image
 import requests
 import streamlit as st
 
-# Safe import for gTTS
 try:
   from gTTS import gTTS
 
@@ -18,8 +17,11 @@ st.set_page_config(
     page_title="BloggerAgent AI", page_icon="✍️", layout="wide"
 )
 
-# API Token Retrieval
-api_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+api_key = (
+    st.secrets.get("GEMINI_API_KEY")
+    or os.getenv("GEMINI_API_KEY")
+    or ""
+).strip()
 
 if not api_key:
   st.error("⚠️ GEMINI_API_KEY not found in Streamlit Secrets!")
@@ -27,16 +29,12 @@ if not api_key:
 
 
 def call_gemini_api(prompt_text, image_obj=None, audio_bytes=None):
-  if api_key.startswith("AQ."):
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
-    headers = {
-        "Content-Type": "application/json",
-        "x-goog-api-client": "genai-js/0.1.1",
-        "Authorization": f"Bearer {api_key}",
-    }
-  else:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
+  # Standard Google Generative Language Endpoint
+  url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+  headers = {
+      "Content-Type": "application/json",
+      "x-goog-api-key": api_key,
+  }
 
   parts = []
 
@@ -93,7 +91,6 @@ st.caption("Research, Draft & Ideate via Text, Voice, or Visual Inputs")
 if "messages" not in st.session_state:
   st.session_state.messages = []
 
-# Display Conversation History
 for msg in st.session_state.messages:
   with st.chat_message(msg["role"]):
     if msg.get("image"):
@@ -106,7 +103,6 @@ for msg in st.session_state.messages:
     if msg.get("audio_out"):
       st.audio(msg["audio_out"], format="audio/mp3")
 
-# Main Chat Bar
 user_prompt = st.chat_input("Ask anything...")
 has_voice_only = voice_audio is not None and not user_prompt
 active_input = (
@@ -150,7 +146,6 @@ if active_input:
 
       st.markdown(ai_text)
 
-      # Speech Output
       audio_out_bytes = None
       if HAS_GTTS and not ai_text.startswith("⚠️"):
         try:
